@@ -290,11 +290,33 @@ func (m *Manager) Restart(a *App, update bool, newEnv map[string]string) error {
 			}
 		}
 	}
+	// Fail fast when the target is gone instead of looping on a doomed start.
+	if _, err := runner.Resolve(a.Spec); err != nil {
+		m.stop(a)
+		m.failStart(a, err)
+		return fmt.Errorf("%s: failed to start: %w", a.Spec.Name, err)
+	}
 	m.stop(a)
 	a.set(func() { a.Restarts++; a.LastError = "" })
 	m.launch(a, false)
 	m.save()
 	return nil
+}
+
+// failStart parks the app as errored with a note: the start can never work
+// until the user fixes the target, so it is not retried.
+func (m *Manager) failStart(a *App, err error) {
+	msg := "failed to start: " + err.Error()
+	a.set(func() {
+		a.Desired, a.Status, a.LastError = "stopped", model.StatusErrored, msg
+		a.Pid, a.StartTicks = 0, 0
+	})
+	if _, errf, e := openLogs(a); e == nil {
+		fmt.Fprintf(errf, "%s uvpm: %s\n", time.Now().Format(time.RFC3339), msg)
+		errf.Close()
+	}
+	log.Printf("%s: %s", a.Spec.Name, msg)
+	m.save()
 }
 
 func (m *Manager) Delete(a *App) {
@@ -444,6 +466,11 @@ func (m *Manager) supervise(ctx context.Context, a *App, adopt bool) {
 			if ctx.Err() != nil {
 				return
 			}
+			var fe *fatalStartError
+			if errors.As(startErr, &fe) {
+				m.failStart(a, fe.err)
+				return
+			}
 			log.Printf("%s: %v", spec.Name, startErr)
 			a.set(func() { a.LastError = startErr.Error(); a.Status = model.StatusErrored })
 		}
@@ -497,11 +524,18 @@ func describeExit(ei exitInfo) string {
 	}
 }
 
+// fatalStartError is a start failure that retrying cannot fix (missing script,
+// project, working directory or command).
+type fatalStartError struct{ err error }
+
+func (e *fatalStartError) Error() string { return e.err.Error() }
+func (e *fatalStartError) Unwrap() error { return e.err }
+
 // startOnce syncs (when needed) and spawns the process.
 func (m *Manager) startOnce(ctx context.Context, a *App) (<-chan exitInfo, int, error) {
 	res, err := runner.Resolve(a.Spec)
 	if err != nil {
-		return nil, 0, err
+		return nil, 0, &fatalStartError{err}
 	}
 	if res.Project != "" {
 		a.mu.Lock()
@@ -531,6 +565,9 @@ func (m *Manager) startOnce(ctx context.Context, a *App) (<-chan exitInfo, int, 
 	cmd.Stdout, cmd.Stderr = outf, errf
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true} // own session and process group
 	if err := cmd.Start(); err != nil {
+		if errors.Is(err, os.ErrNotExist) || errors.Is(err, os.ErrPermission) {
+			return nil, 0, &fatalStartError{err}
+		}
 		return nil, 0, err
 	}
 	pid := cmd.Process.Pid

@@ -3,6 +3,7 @@ package daemon
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"syscall"
 	"testing"
 	"time"
@@ -214,5 +215,65 @@ func TestGlobalEnvFileLayering(t *testing.T) {
 	waitFor(t, "exit again", func() bool { return status(a) == model.StatusExited })
 	if b, _ := os.ReadFile(out); string(b) != "later/g\n" {
 		t.Fatalf("got %q", b)
+	}
+}
+
+func TestMissingTargetFailsFast(t *testing.T) {
+	m := setup(t)
+	dir := t.TempDir()
+	script := filepath.Join(dir, "job.sh")
+	if err := os.WriteFile(script, []byte("#!/bin/sh\nsleep 60\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	// A missing target is rejected before the app is added.
+	if _, err := m.Start(rawSpec("ghost", filepath.Join(dir, "missing.sh"))); err == nil {
+		t.Fatal("missing script accepted")
+	}
+	if len(m.all()) != 0 {
+		t.Fatal("app added despite missing script")
+	}
+
+	a, err := m.Start(rawSpec("job", script))
+	if err != nil {
+		t.Fatal(err)
+	}
+	waitFor(t, "online", func() bool { return status(a) == model.StatusOnline })
+	os.Remove(script)
+
+	// Restart fails immediately, parks the app as errored with a note.
+	if err := m.Restart(a, false, nil); err == nil {
+		t.Fatal("restart of missing script succeeded")
+	}
+	if s := status(a); s != model.StatusErrored {
+		t.Fatalf("status = %s", s)
+	}
+	info := m.Info(a)
+	if info.Desired != "stopped" || !strings.Contains(info.LastError, "failed to start") {
+		t.Fatalf("desired=%s last_error=%q", info.Desired, info.LastError)
+	}
+	if groupAlive(info.Pid) && info.Pid != 0 {
+		t.Fatal("old process still running")
+	}
+}
+
+func TestVanishedTargetIsNotRetried(t *testing.T) {
+	m := setup(t)
+	dir := t.TempDir()
+	script := filepath.Join(dir, "flaky.sh")
+	if err := os.WriteFile(script, []byte("#!/bin/sh\nexit 1\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	spec := rawSpec("flaky", script)
+	spec.RestartDelayMs = 300
+	a, err := m.Start(spec)
+	if err != nil {
+		t.Fatal(err)
+	}
+	waitFor(t, "first run", func() bool { return m.Info(a).LastExit != "" })
+	os.Remove(script)
+	waitFor(t, "errored", func() bool { return status(a) == model.StatusErrored })
+	info := m.Info(a)
+	if info.Desired != "stopped" || !strings.Contains(info.LastError, "failed to start") {
+		t.Fatalf("desired=%s last_error=%q", info.Desired, info.LastError)
 	}
 }

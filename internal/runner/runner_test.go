@@ -109,3 +109,28 @@ func TestProjectHash(t *testing.T) {
 		t.Fatal("hash ignores uv.lock")
 	}
 }
+
+func TestResolveMissingTargets(t *testing.T) {
+	d := t.TempDir()
+	cases := []struct {
+		name string
+		spec model.Spec
+		want string
+	}{
+		{"script", model.Spec{Target: filepath.Join(d, "nope.py"), Mode: "script"}, "script not found"},
+		{"script autodetect", model.Spec{Target: filepath.Join(d, "nope.py")}, "script not found"},
+		{"project", model.Spec{Target: filepath.Join(d, "nodir"), Mode: "uv"}, "project directory not found"},
+		{"raw path", model.Spec{Target: filepath.Join(d, "run.sh"), Mode: "raw"}, "command not found"},
+		{"raw command", model.Spec{Target: "definitely-not-a-command-xyz", Mode: "raw"}, "command not found"},
+		{"cwd", model.Spec{Target: "/bin/sh", Mode: "raw", Cwd: filepath.Join(d, "gone")}, "working directory not found"},
+	}
+	for _, c := range cases {
+		_, err := Resolve(c.spec)
+		if err == nil || !strings.Contains(err.Error(), c.want) {
+			t.Errorf("%s: err = %v, want %q", c.name, err, c.want)
+		}
+	}
+	if _, err := Resolve(model.Spec{Target: "sh", Mode: "raw"}); err != nil {
+		t.Errorf("bare command on PATH rejected: %v", err)
+	}
+}

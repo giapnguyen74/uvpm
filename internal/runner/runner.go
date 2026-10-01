@@ -30,15 +30,29 @@ func Resolve(s model.Spec) (*Result, error) {
 	if mode == "" {
 		mode = Detect(s)
 	}
+	var (
+		res *Result
+		err error
+	)
 	switch mode {
 	case "uv":
-		return resolveProject(s)
+		res, err = resolveProject(s)
 	case "script":
-		return resolveScript(s)
+		res, err = resolveScript(s)
 	case "raw":
-		return resolveRaw(s)
+		res, err = resolveRaw(s)
+	default:
+		return nil, fmt.Errorf("unknown mode %q (want uv, script or raw)", mode)
 	}
-	return nil, fmt.Errorf("unknown mode %q (want uv, script or raw)", mode)
+	if err != nil {
+		return nil, err
+	}
+	if res.Dir != "" {
+		if fi, err := os.Stat(res.Dir); err != nil || !fi.IsDir() {
+			return nil, fmt.Errorf("working directory not found: %s", res.Dir)
+		}
+	}
+	return res, nil
 }
 
 // Detect guesses the mode from the target.
@@ -48,6 +62,9 @@ func Detect(s model.Spec) string {
 	}
 	fi, err := os.Stat(s.Target)
 	if err != nil {
+		if strings.HasSuffix(s.Target, ".py") {
+			return "script" // missing file: resolveScript reports it
+		}
 		return "raw"
 	}
 	if fi.IsDir() {
@@ -79,6 +96,9 @@ func FindUV() (string, error) {
 
 func resolveProject(s model.Spec) (*Result, error) {
 	dir := s.Target
+	if fi, err := os.Stat(dir); err != nil || !fi.IsDir() {
+		return nil, fmt.Errorf("project directory not found: %s", dir)
+	}
 	if _, err := os.Stat(filepath.Join(dir, "pyproject.toml")); err != nil {
 		return nil, fmt.Errorf("%s: no pyproject.toml (not a uv project)", dir)
 	}
@@ -127,7 +147,7 @@ func HasInlineMetadata(file string) bool {
 
 func resolveScript(s model.Spec) (*Result, error) {
 	file := s.Target
-	if _, err := os.Stat(file); err != nil {
+	if fi, err := os.Stat(file); err != nil || fi.IsDir() {
 		return nil, fmt.Errorf("script not found: %s", file)
 	}
 	dir := orDefault(s.Cwd, filepath.Dir(file))
@@ -162,6 +182,11 @@ func resolveScript(s model.Spec) (*Result, error) {
 }
 
 func resolveRaw(s model.Spec) (*Result, error) {
+	if !s.Shell {
+		if err := checkCommand(s); err != nil {
+			return nil, err
+		}
+	}
 	var argv []string
 	switch {
 	case s.Shell:
@@ -172,6 +197,38 @@ func resolveRaw(s model.Spec) (*Result, error) {
 		argv = append([]string{s.Target}, s.Args...)
 	}
 	return &Result{Mode: "raw", Argv: argv, Dir: s.Cwd}, nil
+}
+
+// checkCommand makes sure a non-shell target exists: a path must be a file
+// (relative paths are resolved against the working directory, like exec does),
+// a bare command must be on the app's PATH.
+func checkCommand(s model.Spec) error {
+	t := s.Target
+	if strings.ContainsRune(t, '/') {
+		p := t
+		if !filepath.IsAbs(p) && s.Cwd != "" {
+			p = filepath.Join(s.Cwd, p)
+		}
+		if fi, err := os.Stat(p); err != nil || fi.IsDir() {
+			return fmt.Errorf("command not found: %s", t)
+		}
+		return nil
+	}
+	path := os.Getenv("PATH")
+	for _, e := range []map[string]string{s.BaseEnv, s.Env} {
+		if v, ok := e["PATH"]; ok {
+			path = v
+		}
+	}
+	for _, d := range filepath.SplitList(path) {
+		if d == "" {
+			d = "."
+		}
+		if isExecutable(filepath.Join(d, t)) {
+			return nil
+		}
+	}
+	return fmt.Errorf("command not found in PATH: %s", t)
 }
 
 func isExecutable(p string) bool {
