@@ -26,6 +26,12 @@ func LogsDir() string   { return filepath.Join(Dir(), "logs") }
 func DaemonLog() string { return filepath.Join(Dir(), "daemon.log") }
 
 // Ensure creates the work folder layout.
+// The folder is always made private to the current user, even when it already
+// existed with looser permissions: it holds the daemon socket and the saved
+// environments.
 func Ensure() error {
-	return os.MkdirAll(LogsDir(), 0o700)
+	if err := os.MkdirAll(LogsDir(), 0o700); err != nil {
+		return err
+	}
+	return os.Chmod(Dir(), 0o700)
 }

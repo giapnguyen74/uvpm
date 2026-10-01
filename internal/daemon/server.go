@@ -41,7 +41,10 @@ func Run() error {
 		return ErrAlreadyRunning
 	}
 	_ = os.Remove(home.Sock()) // stale socket; we hold the lock
+	// Create the socket owner-only from the start (no window before a chmod).
+	old := syscall.Umask(0o077)
 	ln, err := net.Listen("unix", home.Sock())
+	syscall.Umask(old)
 	if err != nil {
 		return err
 	}
