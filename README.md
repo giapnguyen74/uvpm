@@ -10,6 +10,19 @@ curl -fsSL https://raw.githubusercontent.com/giapnguyen74/uvpm/main/install.sh |
 
 Installs the latest release to `~/.local/bin` (Linux/macOS, amd64/arm64). Set `UVPM_VERSION=v0.1.0` to pin a version or `UVPM_INSTALL_DIR` to change the location.
 
+### Uninstall
+
+```
+uvpm shutdown          # remove the login item, if you ran `uvpm startup`
+uvpm kill              # stop all apps and the daemon
+rm ~/.local/bin/uvpm   # remove the binary (or $UVPM_INSTALL_DIR/uvpm)
+rm -rf ~/.uvpm         # optional: delete state, logs and the saved process list
+```
+
+Run `uvpm shutdown` and `uvpm kill` before deleting the binary, since they need it.
+
+## Usage
+
 ```
 make build                      # bin/uvpm
 
