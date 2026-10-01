@@ -294,7 +294,7 @@ func (m *Manager) Restart(a *App, update bool, newEnv map[string]string) error {
 	if _, err := runner.Resolve(a.Spec); err != nil {
 		m.stop(a)
 		m.failStart(a, err)
-		return fmt.Errorf("%s: failed to start: %w", a.Spec.Name, err)
+		return fmt.Errorf("failed to start: %w", err)
 	}
 	m.stop(a)
 	a.set(func() { a.Restarts++; a.LastError = "" })
