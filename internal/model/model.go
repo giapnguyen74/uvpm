@@ -1,7 +1,22 @@
 // Package model holds the types shared by the CLI and the daemon.
 package model
 
-import "time"
+import (
+	"fmt"
+	"regexp"
+	"time"
+)
+
+var nameRe = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$`)
+
+// ValidName checks an app name. Names end up in log file names, so path
+// separators and leading dots are not allowed.
+func ValidName(name string) error {
+	if !nameRe.MatchString(name) {
+		return fmt.Errorf("invalid app name %q: use 1-64 letters, digits, '.', '_' or '-', starting with a letter or digit", name)
+	}
+	return nil
+}
 
 // Spec describes an app. It is stored as given; the command line is resolved
 // from it on every (re)start so project changes are picked up.

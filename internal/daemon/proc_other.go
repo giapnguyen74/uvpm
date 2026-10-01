@@ -1,6 +1,6 @@
-//go:build !linux
+//go:build !linux && !darwin
 
 package daemon
 
-// startTicks is only available on Linux; elsewhere adoption relies on the pid alone.
+// startTicks is unavailable here; without it processes are never adopted.
 func startTicks(pid int) uint64 { return 0 }

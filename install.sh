@@ -38,15 +38,13 @@ trap 'rm -rf "$tmp"' EXIT
 echo "Downloading $asset ..."
 fetch "$base/$asset" "$tmp/uvpm"
 
-# Verify the checksum when the release publishes one.
-if fetch "$base/checksums.txt" "$tmp/checksums.txt" 2>/dev/null; then
-  want="$(grep " $asset\$" "$tmp/checksums.txt" | cut -d' ' -f1)"
-  if command -v sha256sum >/dev/null 2>&1; then got="$(sha256sum "$tmp/uvpm" | cut -d' ' -f1)"
-  else got="$(shasum -a 256 "$tmp/uvpm" | cut -d' ' -f1)"; fi
-  if [ -n "$want" ] && [ "$want" != "$got" ]; then
-    echo "uvpm: checksum mismatch" >&2; exit 1
-  fi
-fi
+# Verify the checksum; refuse to install without one.
+fetch "$base/checksums.txt" "$tmp/checksums.txt" || { echo "uvpm: cannot download checksums.txt" >&2; exit 1; }
+want="$(grep " $asset\$" "$tmp/checksums.txt" | cut -d' ' -f1)"
+[ -n "$want" ] || { echo "uvpm: no checksum listed for $asset" >&2; exit 1; }
+if command -v sha256sum >/dev/null 2>&1; then got="$(sha256sum "$tmp/uvpm" | cut -d' ' -f1)"
+else got="$(shasum -a 256 "$tmp/uvpm" | cut -d' ' -f1)"; fi
+[ "$want" = "$got" ] || { echo "uvpm: checksum mismatch for $asset" >&2; exit 1; }
 
 mkdir -p "$DIR"
 chmod +x "$tmp/uvpm"

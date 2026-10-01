@@ -25,6 +25,11 @@ func alive(pid int, ticks uint64) bool {
 	return true
 }
 
+// adoptable reports whether pid is still the process uvpm started. Without a
+// recorded start time it cannot be told apart from an unrelated process that
+// reused the pid, so it is never adopted (and therefore never signalled).
+func adoptable(pid int, ticks uint64) bool { return ticks != 0 && alive(pid, ticks) }
+
 // groupAlive reports whether any process of the app's process group is left.
 func groupAlive(pgid int) bool {
 	err := syscall.Kill(-pgid, 0)

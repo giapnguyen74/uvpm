@@ -119,6 +119,10 @@ func (m *Manager) Load() error {
 	}
 	m.mu.Unlock()
 	for _, p := range st.Apps {
+		if err := model.ValidName(p.Spec.Name); err != nil {
+			log.Printf("skipping app %d from state: %v", p.ID, err)
+			continue
+		}
 		a := &App{ID: p.ID, Spec: p.Spec, Desired: p.Desired, Status: p.Status, Pid: p.Pid,
 			StartTicks: p.StartTicks, StartedAt: p.StartedAt, Restarts: p.Restarts,
 			SyncHash: p.SyncHash, LastExit: p.LastExit}
@@ -131,7 +135,7 @@ func (m *Manager) Load() error {
 		if a.Desired != "running" {
 			continue
 		}
-		if alive(a.Pid, a.StartTicks) {
+		if adoptable(a.Pid, a.StartTicks) {
 			log.Printf("adopting %s (pid %d)", a.Spec.Name, a.Pid)
 			a.set(func() { a.Status = model.StatusOnline })
 			m.launch(a, true)
@@ -218,8 +222,8 @@ func (m *Manager) List() []model.AppInfo {
 // ---- commands -------------------------------------------------------------
 
 func (m *Manager) Start(spec model.Spec) (*App, error) {
-	if spec.Name == "" {
-		return nil, errors.New("app name is required")
+	if err := model.ValidName(spec.Name); err != nil {
+		return nil, err
 	}
 	if _, err := runner.Resolve(spec); err != nil {
 		return nil, err

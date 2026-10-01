@@ -148,6 +148,9 @@ func cmdStart(args []string) error {
 	if name == "" {
 		return errors.New("--name is required: uvpm run --name <name> <target> [-- child options]")
 	}
+	if err := model.ValidName(name); err != nil {
+		return err
+	}
 	env := map[string]string{}
 	for _, kv := range envs {
 		k, v, ok := strings.Cut(kv, "=")
