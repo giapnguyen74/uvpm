@@ -33,7 +33,11 @@ uvpm run --name app job.py               # python script; PEP 723 inline metadat
 uvpm run --name app ./backup.sh --no-autorestart
 uvpm run --name once "sleep 5 && echo hi" --shell
 
-uvpm ls | describe <app> | logs [app] [-f] | stop|restart|delete <app|all>
+uvpm ls                         # id, name, status, listening host:port, target
+uvpm describe <app> | logs [app] [-f] | flush [app]
+uvpm stop <app|all>             # pause: keeps the app in uvpm
+uvpm start <app|all>            # start a stopped app again (running apps are left alone)
+uvpm restart <app|all> | delete <app|all>
 uvpm restart <app> --update     # uv sync first if pyproject.toml/uv.lock changed, then restart
 uvpm startup                    # Linux: systemd --user unit (run `loginctl enable-linger $USER` to start at boot)
                                 # macOS: launchd login item; shows exactly what it will change and asks first (--yes to skip)

@@ -22,7 +22,8 @@ const usage = `uvpm - process manager for uv projects and scripts
 
 Usage: uvpm <command> [args]
 
-  run --name <name> <target> [options] [-- child options]   run a uv project dir, python script or raw command (alias: start)
+  run --name <name> <target> [options] [-- child options]   add and run a uv project dir, python script or raw command
+  start <name|id|all>                   start a stopped app again (stop keeps it in uvpm; delete removes it)
   list | ls | status                    list apps
   describe <name|id>                    show an app in detail
   stop|restart|delete <name|id|all>     lifecycle (restart --update re-syncs uv deps first)
@@ -47,27 +48,42 @@ func Run(args []string) int {
 	cmd, rest := args[0], args[1:]
 	var err error
 	switch cmd {
-	case "run", "start":
+	case "run":
 		err = cmdStart(rest)
+	case "start":
+		// `start <name|id|all>` resumes a stopped app; with options it is `run`.
+		if len(rest) == 1 && !strings.HasPrefix(rest[0], "-") {
+			err = cmdSimple("resume", cmd, rest)
+		} else {
+			err = cmdStart(rest)
+		}
 	case "list", "ls", "status":
-		err = cmdList()
+		if err = noArgs(cmd, rest); err == nil {
+			err = cmdList()
+		}
 	case "describe", "show":
 		err = cmdDescribe(rest)
 	case "stop", "delete", "del", "rm":
-		err = cmdSelect(map[string]string{"del": "delete", "rm": "delete"}[cmd], cmd, rest, false, nil)
+		err = cmdSimple(map[string]string{"del": "delete", "rm": "delete"}[cmd], cmd, rest)
 	case "restart":
 		err = cmdRestart(rest)
 	case "flush":
-		err = cmdSelect("flush", cmd, rest, false, nil)
+		err = cmdSimple("flush", cmd, rest)
 	case "logs":
 		err = cmdLogs(rest)
 	case "save":
+		if err = noArgs(cmd, rest); err != nil {
+			break
+		}
 		err = call("save", nil, nil)
 		if err == nil {
 			fmt.Println("saved to", home.DumpFile())
 		}
 	case "resurrect":
 		var n int
+		if err = noArgs(cmd, rest); err != nil {
+			break
+		}
 		if err = call("resurrect", nil, &n); err == nil {
 			fmt.Printf("started %d app(s) from %s\n", n, home.DumpFile())
 		}
@@ -78,9 +94,13 @@ func Run(args []string) int {
 	case "daemon":
 		err = cmdDaemon(rest)
 	case "kill":
-		err = cmdKill()
+		if err = noArgs(cmd, rest); err == nil {
+			err = cmdKill()
+		}
 	case "version", "-v", "--version":
-		fmt.Println("uvpm", version.Version)
+		if err = noArgs("version", rest); err == nil {
+			fmt.Println("uvpm", version.Version)
+		}
 	case "help", "-h", "--help":
 		fmt.Print(usage)
 	default:
@@ -198,8 +218,33 @@ func oneSelector(cmd string, args []string) (string, error) {
 	return args[0], nil
 }
 
+// noArgs parses flags for a command that takes none, rejecting stray arguments.
+func noArgs(cmd string, args []string) error {
+	pos, after, err := parseInterspersed(flag.NewFlagSet(cmd, flag.ContinueOnError), args)
+	if err != nil {
+		return err
+	}
+	if len(pos)+len(after) > 0 {
+		return fmt.Errorf("usage: uvpm %s (takes no arguments)", cmd)
+	}
+	return nil
+}
+
+// cmdSimple runs a selector-only command (stop, delete, flush), rejecting unknown flags.
+func cmdSimple(method, cmd string, args []string) error {
+	pos, after, err := parseInterspersed(flag.NewFlagSet(cmd, flag.ContinueOnError), args)
+	if err != nil {
+		return err
+	}
+	return cmdSelect(method, cmd, append(pos, after...), false, nil)
+}
+
 func cmdDescribe(args []string) error {
-	sel, err := oneSelector("describe", args)
+	pos, after, err := parseInterspersed(flag.NewFlagSet("describe", flag.ContinueOnError), args)
+	if err != nil {
+		return err
+	}
+	sel, err := oneSelector("describe", append(pos, after...))
 	if err != nil {
 		return err
 	}
@@ -357,7 +402,10 @@ func cmdStartup(args []string) error {
 }
 
 func cmdDaemon(args []string) error {
-	if len(args) > 0 && args[0] == "restart" {
+	if len(args) > 0 {
+		if args[0] != "restart" || len(args) > 1 {
+			return errors.New("usage: uvpm daemon [restart]")
+		}
 		return daemonRestart()
 	}
 	f, err := os.OpenFile(home.DaemonLog(), os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o600)

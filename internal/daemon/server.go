@@ -93,7 +93,7 @@ func (s *server) handle(method string, params json.RawMessage) (any, error) {
 		return s.m.List(), nil
 	case "list":
 		return s.m.List(), nil
-	case "describe", "stop", "restart", "delete", "flush":
+	case "describe", "stop", "resume", "restart", "delete", "flush":
 		var p model.SelectParams
 		if err := json.Unmarshal(params, &p); err != nil {
 			return nil, err
@@ -130,6 +130,10 @@ func (s *server) apply(method string, apps []*App, update bool, env map[string]s
 		switch method {
 		case "stop":
 			s.m.Stop(a)
+		case "resume":
+			if err := s.m.Resume(a); err != nil {
+				errs = append(errs, fmt.Errorf("%s: %w", a.Spec.Name, err))
+			}
 		case "restart":
 			if err := s.m.Restart(a, update, env); err != nil {
 				errs = append(errs, fmt.Errorf("%s: %w", a.Spec.Name, err))

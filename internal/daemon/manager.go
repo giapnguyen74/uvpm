@@ -7,6 +7,7 @@ import (
 	"log"
 	"os"
 	"os/exec"
+	"slices"
 	"sort"
 	"strconv"
 	"sync"
@@ -195,6 +196,9 @@ func (m *Manager) Info(a *App) model.AppInfo {
 		info.UptimeMs = time.Since(a.StartedAt).Milliseconds()
 	}
 	a.mu.Unlock()
+	if info.Status == model.StatusOnline && info.Pid > 0 {
+		info.Listen = uniqSorted(listeners(info.Pid))
+	}
 	info.OutLog, info.ErrLog = logPaths(a)
 	if res, err := runner.Resolve(info.Spec); err == nil {
 		info.Mode, info.Command = res.Mode, res.Argv
@@ -268,6 +272,27 @@ func (m *Manager) stop(a *App) {
 		}
 		a.Pid, a.StartTicks = 0, 0
 	})
+}
+
+// Resume starts a stopped, exited or errored app again from its saved spec.
+// Apps that are already running are left alone.
+func (m *Manager) Resume(a *App) error {
+	a.mu.Lock()
+	st := a.Status
+	a.mu.Unlock()
+	switch st {
+	case model.StatusOnline, model.StatusRestarting, model.StatusSyncing, "starting":
+		return nil
+	}
+	m.stop(a) // release any finished supervisor before launching a new one
+	if _, err := runner.Resolve(a.Spec); err != nil {
+		m.failStart(a, err)
+		return fmt.Errorf("failed to start: %w", err)
+	}
+	a.set(func() { a.LastError = "" })
+	m.launch(a, false)
+	m.save()
+	return nil
 }
 
 // Restart restarts the app. With update, dependencies are synced first when
@@ -615,4 +640,9 @@ func (m *Manager) syncProject(a *App, dir string) error {
 	}
 	a.set(func() { a.SyncHash = runner.ProjectHash(dir) })
 	return nil
+}
+
+func uniqSorted(in []string) []string {
+	sort.Strings(in)
+	return slices.Compact(in)
 }

@@ -77,6 +77,7 @@ type AppInfo struct {
 	LastError string    `json:"last_error,omitempty"`
 	Cwd       string    `json:"cwd"`
 	Command   []string  `json:"command,omitempty"`
+	Listen    []string  `json:"listen,omitempty"` // TCP listen addresses of the app's process group
 	OutLog    string    `json:"out_log"`
 	ErrLog    string    `json:"err_log"`
 	Spec      Spec      `json:"spec"`
